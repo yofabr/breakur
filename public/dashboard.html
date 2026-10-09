@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Create and manage your breakur short links." />
+    <title>Dashboard — breakur</title>
+    <link rel="stylesheet" href="/public/assets/app.css" />
+  </head>
+  <body class="min-h-screen bg-[#f6f1e8] font-mono text-[#111111] selection:bg-[#ff5c35] selection:text-white">
+    <main class="mx-auto w-full max-w-5xl p-5 sm:p-8">
+      <header class="mb-6 flex items-center justify-between gap-4">
+        <a class="text-2xl font-black tracking-[-0.12em] hover:underline" href="/">BREAKUR</a>
+        <div class="flex items-center gap-3">
+          <span class="hidden border-2 border-black bg-white px-2 py-1 text-xs font-bold uppercase sm:inline">03 / dashboard</span>
+          <form action="/logout" method="post">
+            <button class="border-3 border-black bg-black px-3 py-2 text-xs font-black uppercase text-white transition hover:bg-[#ff5c35] hover:text-black" type="submit">Log out</button>
+          </form>
+        </div>
+      </header>
+
+      <section class="border-4 border-black bg-[#ffe500] p-5 shadow-[9px_9px_0_#111] sm:p-7 sm:shadow-[12px_12px_0_#111]">
+        <p class="mb-2 text-xs font-bold uppercase tracking-[0.16em]">Make it forgettable</p>
+        <h1 class="text-4xl font-black leading-[0.9] tracking-[-0.08em] sm:text-5xl">CUT A NEW LINK.</h1>
+
+        {{if .Error}}<p class="mt-6 border-3 border-black bg-white p-3 text-sm font-bold text-[#c02411]" role="alert">{{.Error}}</p>{{end}}
+        {{if .Notice}}<p class="mt-6 border-3 border-black bg-black p-3 text-sm font-bold text-white" role="status">{{.Notice}}</p>{{end}}
+
+        <form class="mt-6 grid gap-4 sm:grid-cols-[1fr_12rem] sm:items-end" action="/links" method="post">
+          <div>
+            <label class="mb-2 block text-sm font-bold" for="url">DESTINATION URL</label>
+            <input class="w-full border-3 border-black bg-white px-4 py-3 text-base font-bold outline-none placeholder:text-[#777] focus:bg-[#ffebe5]" id="url" name="url" type="url" inputmode="url" placeholder="https://example.com/very/long/path" required />
+          </div>
+          <div>
+            <label class="mb-2 block text-sm font-bold" for="code">CUSTOM CODE <span class="font-normal">(OPT.)</span></label>
+            <input class="w-full border-3 border-black bg-white px-4 py-3 text-base font-bold outline-none placeholder:text-[#777] focus:bg-[#ffebe5]" id="code" name="code" type="text" pattern="[A-Za-z0-9_-]{1,64}" placeholder="my-link" />
+          </div>
+          <button class="border-3 border-black bg-[#ff5c35] px-6 py-3 text-base font-black uppercase shadow-[5px_5px_0_#111] transition hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[3px_3px_0_#111] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-black sm:col-span-2" type="submit">Shorten →</button>
+        </form>
+      </section>
+
+      <section class="mt-9">
+        <div class="mb-4 flex items-end justify-between gap-4 border-b-4 border-black pb-3">
+          <h2 class="text-2xl font-black tracking-[-0.06em] sm:text-3xl">YOUR LINKS.</h2>
+          <span class="text-xs font-bold uppercase">{{len .Links}} total</span>
+        </div>
+
+        {{if .Links}}
+        <ul class="space-y-4">
+          {{range .Links}}
+          <li class="border-3 border-black bg-white shadow-[6px_6px_0_#111]">
+            <div class="grid gap-4 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+              <div class="min-w-0">
+                <p class="truncate text-sm font-bold" title="{{.URL}}">{{.URL}}</p>
+                <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-bold uppercase">
+                  <a class="underline decoration-2 underline-offset-2 hover:no-underline" href="/{{.Code}}" title="Open short link">{{.Short}}</a>
+                  <span class="text-[#555]">Added {{.Created}}</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button class="border-3 border-black bg-[#ffe500] px-3 py-2 text-xs font-black uppercase shadow-[3px_3px_0_#111] transition hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[1px_1px_0_#111]" type="button" data-copy="{{.Short}}">Copy</button>
+                <form action="/links/{{.ID}}/delete" method="post" onsubmit="return confirm('Delete this short link?');">
+                  <button class="border-3 border-black bg-white px-3 py-2 text-xs font-black uppercase transition hover:bg-black hover:text-white" type="submit">Delete</button>
+                </form>
+              </div>
+            </div>
+          </li>
+          {{end}}
+        </ul>
+        {{else}}
+        <div class="border-3 border-dashed border-black bg-white p-8 text-center">
+          <p class="text-lg font-black uppercase">Nothing here yet.</p>
+          <p class="mt-2 text-sm font-bold">Paste a long URL above and break it.</p>
+        </div>
+        {{end}}
+      </section>
+    </main>
+  </body>
+  <script>
+    document.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-copy]");
+      if (!button) return;
+
+      var text = button.getAttribute("data-copy");
+      var done = function () {
+        var original = button.textContent;
+        button.textContent = "Copied!";
+        setTimeout(function () { button.textContent = original; }, 1200);
+      };
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done).catch(function () {});
+        return;
+      }
+
+      // Fallback for non-secure contexts (plain http on a LAN host).
+      var field = document.createElement("textarea");
+      field.value = text;
+      field.setAttribute("readonly", "");
+      field.style.position = "absolute";
+      field.style.left = "-9999px";
+      document.body.appendChild(field);
+      field.select();
+      try { document.execCommand("copy"); done(); } catch (error) {}
+      document.body.removeChild(field);
+    });
+  </script>
+</html>
