@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Sign in to breakur." />
+    <title>Sign in — breakur</title>
+    <link rel="stylesheet" href="/public/assets/app.css" />
+  </head>
+  <body class="min-h-screen bg-[#f6f1e8] font-mono text-[#111111] selection:bg-[#ff5c35] selection:text-white">
+    <main class="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center p-5 sm:p-8">
+      <section class="w-full max-w-md border-4 border-black bg-[#ffe500] shadow-[9px_9px_0_#111] sm:shadow-[12px_12px_0_#111]">
+        <div class="flex items-center justify-between border-b-4 border-black px-5 py-4">
+          <a class="text-2xl font-black tracking-[-0.12em] hover:underline" href="/">BREAKUR</a>
+          <span class="border-2 border-black bg-white px-2 py-1 text-xs font-bold uppercase">01 / login</span>
+        </div>
+
+        <div class="p-5 sm:p-7">
+          <p class="mb-2 text-xs font-bold uppercase tracking-[0.16em]">Welcome back</p>
+          <h1 class="text-4xl font-black leading-[0.9] tracking-[-0.08em] sm:text-5xl">SIGN IN.<br />GET SHORT.</h1>
+
+          <form class="mt-8 space-y-5" action="#" method="post">
+            <div>
+              <label class="mb-2 block text-sm font-bold" for="email">EMAIL ADDRESS</label>
+              <input class="w-full border-3 border-black bg-white px-4 py-3 text-base font-bold outline-none placeholder:text-[#777] focus:bg-[#ffebe5]" id="email" name="email" type="email" autocomplete="email" placeholder="you@domain.com" required />
+            </div>
+            <div>
+              <div class="mb-2 flex items-center justify-between gap-3">
+                <label class="block text-sm font-bold" for="password">PASSWORD</label>
+                <a class="text-xs font-bold underline decoration-2 underline-offset-2 hover:no-underline" href="#">FORGOT?</a>
+              </div>
+              <input class="w-full border-3 border-black bg-white px-4 py-3 text-base font-bold outline-none placeholder:text-[#777] focus:bg-[#ffebe5]" id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+            </div>
+            <button class="w-full border-3 border-black bg-[#ff5c35] px-4 py-3 text-base font-black uppercase shadow-[5px_5px_0_#111] transition hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[3px_3px_0_#111] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-black" type="submit">Sign in →</button>
+          </form>
+
+          <p class="mt-8 border-t-3 border-black pt-5 text-sm font-bold">NEW HERE? <a class="underline decoration-3 underline-offset-3 hover:no-underline" href="/signup">MAKE AN ACCOUNT →</a></p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
