@@ -353,11 +353,14 @@ func TestReservedRouteNamesStillServeTheirPages(t *testing.T) {
 	r := New(conn)
 
 	// Reserved names must resolve to their real routes, not the short-code
-	// catch-all.
+	// catch-all, and must never be cached.
 	for _, path := range []string{"/login", "/signup", "/"} {
 		rec := doGet(r, nil, path)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s status = %d, want 200", path, rec.Code)
+		}
+		if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+			t.Fatalf("GET %s Cache-Control = %q, want no-store", path, cc)
 		}
 	}
 }
@@ -377,6 +380,24 @@ func TestAuthenticatedUsersRedirectFromPublicPages(t *testing.T) {
 		if loc := rec.Header().Get("Location"); loc != "/dashboard" {
 			t.Fatalf("GET %s Location = %q, want /dashboard", path, loc)
 		}
+		// The redirect itself must not be cached either.
+		if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+			t.Fatalf("GET %s Cache-Control = %q, want no-store", path, cc)
+		}
+	}
+}
+
+func TestDashboardIsNotCached(t *testing.T) {
+	conn := requireDB(t)
+	r, sessions := newTestRouter(t, conn)
+
+	user := createTestUser(t, conn)
+	rec := doGet(r, authCookie(sessions, user), "/dashboard")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dashboard status = %d, want 200", rec.Code)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("dashboard Cache-Control = %q, want no-store", cc)
 	}
 }
 

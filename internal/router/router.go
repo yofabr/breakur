@@ -53,15 +53,15 @@ func New(conn *sql.DB) *gin.Engine {
 	r := gin.Default()
 
 	// Public pages; signed-in users are bounced to their dashboard instead.
-	r.GET("/", s.redirectIfAuthenticated, func(c *gin.Context) { c.File(indexFile) })
-	r.GET("/login", s.redirectIfAuthenticated, func(c *gin.Context) { c.File(loginFile) })
+	r.GET("/", noStore, s.redirectIfAuthenticated, func(c *gin.Context) { c.File(indexFile) })
+	r.GET("/login", noStore, s.redirectIfAuthenticated, func(c *gin.Context) { c.File(loginFile) })
 	r.POST("/login", s.login)
-	r.GET("/signup", s.redirectIfAuthenticated, func(c *gin.Context) { c.File(signupFile) })
+	r.GET("/signup", noStore, s.redirectIfAuthenticated, func(c *gin.Context) { c.File(signupFile) })
 	r.POST("/signup", s.signup)
 	r.POST("/logout", s.logout)
 
 	// Authenticated dashboard and link management.
-	r.GET("/dashboard", s.requireAuth, s.showDashboard)
+	r.GET("/dashboard", noStore, s.requireAuth, s.showDashboard)
 	r.POST("/links", s.requireAuth, s.createLink)
 	r.POST("/links/:id/delete", s.requireAuth, s.deleteLink)
 
@@ -73,4 +73,12 @@ func New(conn *sql.DB) *gin.Engine {
 	r.GET("/:shortCode", s.redirectLink)
 
 	return r
+}
+
+// noStore forbids caching of auth-sensitive pages. Without it a browser can
+// serve a cached landing/login page on normal navigation and never ask the
+// origin, so an already-signed-in user would not be redirected to /dashboard.
+func noStore(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Next()
 }
