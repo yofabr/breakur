@@ -27,6 +27,9 @@ var testCounter atomic.Int64
 
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
+	// Pin the session secret so the router and the helpers sign identical
+	// cookies regardless of the host environment.
+	os.Setenv("AUTH_SESSION_SECRET", testSecret)
 	// The server resolves public/ relative to the working directory, so run
 	// tests from the module root.
 	if err := os.Chdir("../.."); err != nil {
@@ -355,6 +358,24 @@ func TestReservedRouteNamesStillServeTheirPages(t *testing.T) {
 		rec := doGet(r, nil, path)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s status = %d, want 200", path, rec.Code)
+		}
+	}
+}
+
+func TestAuthenticatedUsersRedirectFromPublicPages(t *testing.T) {
+	conn := requireDB(t)
+	r, sessions := newTestRouter(t, conn)
+
+	user := createTestUser(t, conn)
+	cookie := authCookie(sessions, user)
+
+	for _, path := range []string{"/", "/login", "/signup"} {
+		rec := doGet(r, cookie, path)
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("GET %s status = %d, want %d", path, rec.Code, http.StatusSeeOther)
+		}
+		if loc := rec.Header().Get("Location"); loc != "/dashboard" {
+			t.Fatalf("GET %s Location = %q, want /dashboard", path, loc)
 		}
 	}
 }

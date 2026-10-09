@@ -44,6 +44,17 @@ func (s *server) currentUserID(c *gin.Context) (int64, bool) {
 	return userID, true
 }
 
+// redirectIfAuthenticated sends already-signed-in users to their dashboard so
+// the landing, login, and signup pages are never shown while logged in.
+func (s *server) redirectIfAuthenticated(c *gin.Context) {
+	if _, ok := s.currentUserID(c); ok {
+		c.Redirect(http.StatusSeeOther, "/dashboard")
+		c.Abort()
+		return
+	}
+	c.Next()
+}
+
 func (s *server) login(c *gin.Context) {
 	email := strings.ToLower(strings.TrimSpace(c.PostForm("email")))
 	password := c.PostForm("password")

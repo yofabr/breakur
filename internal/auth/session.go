@@ -7,12 +7,17 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const SessionDuration = 7 * 24 * time.Hour
+
+// keyFileEnv overrides where the generated session key is stored.
+const keyFileEnv = "AUTH_SESSION_KEY_FILE"
 
 // SessionManager creates tamper-evident cookies. Set AUTH_SESSION_SECRET in
 // production so sessions survive application restarts.
@@ -25,8 +30,10 @@ func NewSessionManager(secret string) (*SessionManager, error) {
 		return &SessionManager{secret: []byte(secret)}, nil
 	}
 
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
+	// No explicit secret: load a persisted key so development sessions survive
+	// restarts, generating and storing one on first use.
+	key, err := loadOrCreateSecret()
+	if err != nil {
 		return nil, err
 	}
 	return &SessionManager{secret: key}, nil
@@ -67,4 +74,41 @@ func (m *SessionManager) UserID(value string, now time.Time) (int64, error) {
 		return 0, errors.New("expired session")
 	}
 	return userID, nil
+}
+
+// defaultKeyPath chooses where the auto-generated session key lives. The
+// AUTH_SESSION_KEY_FILE environment variable wins, then the user config
+// directory, then the OS temp directory.
+func defaultKeyPath() (string, error) {
+	if path := os.Getenv(keyFileEnv); path != "" {
+		return path, nil
+	}
+	if dir, err := os.UserConfigDir(); err == nil {
+		return filepath.Join(dir, "breakur", "session.key"), nil
+	}
+	return filepath.Join(os.TempDir(), "breakur-session.key"), nil
+}
+
+// loadOrCreateSecret reads the persisted key, creating a fresh one when the
+// file is missing or unreadable. Failing to persist is not fatal: the key is
+// still returned for use in memory.
+func loadOrCreateSecret() ([]byte, error) {
+	path, err := defaultKeyPath()
+	if err != nil {
+		return nil, err
+	}
+
+	if data, err := os.ReadFile(path); err == nil && len(data) >= 32 {
+		return data, nil
+	}
+
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return key, nil
+	}
+	_ = os.WriteFile(path, key, 0o600)
+	return key, nil
 }

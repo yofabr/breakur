@@ -30,6 +30,11 @@ go.work.sum
 # env file
 .env
 
+# locally generated session signing key (only when AUTH_SESSION_KEY_FILE
+# points inside the repo; the default lives in the user config directory)
+*.session.key
+.breakur_session_key
+
 # Editor/IDE
 # .idea/
 # .vscode/

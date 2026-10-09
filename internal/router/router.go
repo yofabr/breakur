@@ -4,6 +4,7 @@ package router
 import (
 	"database/sql"
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 
@@ -33,6 +34,10 @@ type server struct {
 
 // New builds the Gin engine with all routes registered.
 func New(conn *sql.DB) *gin.Engine {
+	if os.Getenv("AUTH_SESSION_SECRET") == "" {
+		log.Print("AUTH_SESSION_SECRET is not set; using a persisted generated key. Set it in production to keep sessions valid across hosts and deploys.")
+	}
+
 	sessions, err := auth.NewSessionManager(os.Getenv("AUTH_SESSION_SECRET"))
 	if err != nil {
 		panic("create session manager: " + err.Error())
@@ -47,11 +52,11 @@ func New(conn *sql.DB) *gin.Engine {
 
 	r := gin.Default()
 
-	// Static pages.
-	r.GET("/", func(c *gin.Context) { c.File(indexFile) })
-	r.GET("/login", func(c *gin.Context) { c.File(loginFile) })
+	// Public pages; signed-in users are bounced to their dashboard instead.
+	r.GET("/", s.redirectIfAuthenticated, func(c *gin.Context) { c.File(indexFile) })
+	r.GET("/login", s.redirectIfAuthenticated, func(c *gin.Context) { c.File(loginFile) })
 	r.POST("/login", s.login)
-	r.GET("/signup", func(c *gin.Context) { c.File(signupFile) })
+	r.GET("/signup", s.redirectIfAuthenticated, func(c *gin.Context) { c.File(signupFile) })
 	r.POST("/signup", s.signup)
 	r.POST("/logout", s.logout)
 
