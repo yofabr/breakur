@@ -7,16 +7,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// indexFile is the page served at the root path.
-const indexFile = "public/index.html"
+const (
+	indexFile  = "public/index.html"
+	loginFile  = "public/login.html"
+	signupFile = "public/signup.html"
+)
 
 // New builds the Gin engine with all routes registered.
 func New() *gin.Engine {
 	r := gin.Default()
 
-	// The index page.
+	// Static pages.
 	r.GET("/", func(c *gin.Context) {
 		c.File(indexFile)
+	})
+
+	r.GET("/login", func(c *gin.Context) {
+		c.File(loginFile)
+	})
+
+	r.GET("/signup", func(c *gin.Context) {
+		c.File(signupFile)
 	})
 
 	// Serve the rest of public/ (css, js, images, ...) alongside it.
