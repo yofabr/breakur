@@ -40,7 +40,7 @@ func main() {
 		log.Fatalf("migrate: %v", err)
 	}
 
-	r := router.New()
+	r := router.New(conn)
 
 	log.Printf("breakur listening on %s", addr())
 	if err := r.Run(addr()); err != nil {
