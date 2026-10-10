@@ -132,7 +132,7 @@ func TestGenerateShortCode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestProtectedRoutesRedirectToLogin(t *testing.T) {
-	r := New(lazyDB(t))
+	r := New(lazyDB(t), nil)
 
 	tests := []struct {
 		name string
@@ -159,7 +159,7 @@ func TestProtectedRoutesRedirectToLogin(t *testing.T) {
 }
 
 func TestInvalidSessionCookieIsRejected(t *testing.T) {
-	r := New(lazyDB(t))
+	r := New(lazyDB(t), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: "not.a.real.session"})
@@ -178,7 +178,7 @@ func TestInvalidSessionCookieIsRejected(t *testing.T) {
 func TestLoginFlowRedirectsToDashboard(t *testing.T) {
 	conn := requireDB(t)
 	withSecret(t)
-	r := New(conn)
+	r := New(conn, nil)
 
 	email := "login-" + uniqueSuffix() + "@example.com"
 	hash, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.MinCost)
@@ -336,7 +336,7 @@ func TestGeneratedShortCodeIsCreated(t *testing.T) {
 func TestUnknownShortCodeReturnsNotFound(t *testing.T) {
 	conn := requireDB(t)
 	withSecret(t)
-	r := New(conn)
+	r := New(conn, nil)
 
 	rec := doGet(r, nil, "/definitely-not-a-real-code-"+uniqueSuffix())
 	if rec.Code != http.StatusNotFound {
@@ -350,7 +350,7 @@ func TestUnknownShortCodeReturnsNotFound(t *testing.T) {
 func TestReservedRouteNamesStillServeTheirPages(t *testing.T) {
 	conn := requireDB(t)
 	withSecret(t)
-	r := New(conn)
+	r := New(conn, nil)
 
 	// Reserved names must resolve to their real routes, not the short-code
 	// catch-all, and must never be cached.
@@ -420,7 +420,7 @@ func newTestRouter(t *testing.T, conn *sql.DB) (*gin.Engine, *auth.SessionManage
 	if err != nil {
 		t.Fatalf("new session manager: %v", err)
 	}
-	return New(conn), sessions
+	return New(conn, nil), sessions
 }
 
 // lazyDB returns a handle that never connects; it is enough for tests that only

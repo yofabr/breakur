@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"errors"
+	"log"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"breakur/internal/cache"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -101,6 +104,14 @@ func (s *server) showDashboard(c *gin.Context) {
 	c.Data(http.StatusOK, "text/html; charset=utf-8", buf.Bytes())
 }
 
+// warmLink caches a freshly created link so a previously negative-cached code
+// becomes live immediately. Cache failures are logged and ignored.
+func (s *server) warmLink(ctx context.Context, code, destination string) {
+	if cerr := s.cache.Set(ctx, code, destination); cerr != nil {
+		log.Printf("cache set %q: %v", code, cerr)
+	}
+}
+
 func (s *server) createLink(c *gin.Context) {
 	userID := c.MustGet(contextUserID).(int64)
 
@@ -125,6 +136,7 @@ func (s *server) createLink(c *gin.Context) {
 			redirectWithError(c, "/dashboard", "Could not create your short link. Please try again.")
 			return
 		}
+		s.warmLink(c.Request.Context(), code, destination)
 		c.Redirect(http.StatusSeeOther, "/dashboard?notice="+url.QueryEscape("Short link created."))
 		return
 	}
@@ -140,6 +152,7 @@ func (s *server) createLink(c *gin.Context) {
 			}
 			break
 		}
+		s.warmLink(c.Request.Context(), candidate, destination)
 		c.Redirect(http.StatusSeeOther, "/dashboard?notice="+url.QueryEscape("Short link created."))
 		return
 	}
@@ -157,15 +170,23 @@ func (s *server) deleteLink(c *gin.Context) {
 	}
 
 	// The user_id predicate is what enforces ownership: one user can never
-	// delete another user's link.
-	result, err := s.conn.ExecContext(c.Request.Context(), "DELETE FROM links WHERE id = $1 AND user_id = $2", id, userID)
+	// delete another user's link. Returning the short_code lets us evict it
+	// from the shared Redis cache.
+	var code string
+	err = s.conn.QueryRowContext(c.Request.Context(),
+		"DELETE FROM links WHERE id = $1 AND user_id = $2 RETURNING short_code",
+		id, userID).Scan(&code)
+	if errors.Is(err, sql.ErrNoRows) {
+		redirectWithError(c, "/dashboard", "That link does not exist.")
+		return
+	}
 	if err != nil {
 		redirectWithError(c, "/dashboard", "Could not delete that link. Please try again.")
 		return
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		redirectWithError(c, "/dashboard", "That link does not exist.")
-		return
+
+	if cerr := s.cache.Delete(c.Request.Context(), code); cerr != nil {
+		log.Printf("cache delete %q: %v", code, cerr)
 	}
 
 	c.Redirect(http.StatusSeeOther, "/dashboard")
@@ -173,10 +194,30 @@ func (s *server) deleteLink(c *gin.Context) {
 
 func (s *server) redirectLink(c *gin.Context) {
 	code := c.Param("shortCode")
+	ctx := c.Request.Context()
 
-	var destination string
-	err := s.conn.QueryRowContext(c.Request.Context(), "SELECT url FROM links WHERE short_code = $1", code).Scan(&destination)
+	// Cache-aside read: a hit short-circuits the Postgres query, a negative hit
+	// is a known-404, and any cache error is logged and treated as a miss so
+	// redirects always fall back to PostgreSQL (fail open).
+	destination, result, err := s.cache.Get(ctx, code)
+	if err != nil {
+		log.Printf("cache get %q: %v", code, err)
+	}
+	switch result {
+	case cache.LookupHit:
+		c.Redirect(http.StatusFound, destination)
+		return
+	case cache.LookupNegative:
+		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(notFoundPage))
+		return
+	}
+
+	err = s.conn.QueryRowContext(ctx,
+		"SELECT url FROM links WHERE short_code = $1", code).Scan(&destination)
 	if errors.Is(err, sql.ErrNoRows) {
+		if cerr := s.cache.SetMissing(ctx, code); cerr != nil {
+			log.Printf("cache mark missing %q: %v", code, cerr)
+		}
 		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(notFoundPage))
 		return
 	}
@@ -185,6 +226,9 @@ func (s *server) redirectLink(c *gin.Context) {
 		return
 	}
 
+	if cerr := s.cache.Set(ctx, code, destination); cerr != nil {
+		log.Printf("cache set %q: %v", code, cerr)
+	}
 	c.Redirect(http.StatusFound, destination)
 }
 

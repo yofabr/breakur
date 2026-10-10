@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"breakur/internal/auth"
+	"breakur/internal/cache"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,12 +29,19 @@ const (
 // server holds the dependencies every handler needs.
 type server struct {
 	conn      *sql.DB
+	cache     cache.LinkCache
 	sessions  *auth.SessionManager
 	dashboard *template.Template
 }
 
-// New builds the Gin engine with all routes registered.
-func New(conn *sql.DB) *gin.Engine {
+// New builds the Gin engine with all routes registered. A nil linkCache
+// defaults to cache.Nop{}, so the app runs PostgreSQL-only when Redis is not
+// available.
+func New(conn *sql.DB, linkCache cache.LinkCache) *gin.Engine {
+	if linkCache == nil {
+		linkCache = cache.Nop{}
+	}
+
 	if os.Getenv("AUTH_SESSION_SECRET") == "" {
 		log.Print("AUTH_SESSION_SECRET is not set; using a persisted generated key. Set it in production to keep sessions valid across hosts and deploys.")
 	}
@@ -48,7 +56,7 @@ func New(conn *sql.DB) *gin.Engine {
 		panic("parse dashboard template: " + err.Error())
 	}
 
-	s := &server{conn: conn, sessions: sessions, dashboard: dashboard}
+	s := &server{conn: conn, cache: linkCache, sessions: sessions, dashboard: dashboard}
 
 	r := gin.Default()
 
