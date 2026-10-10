@@ -2,7 +2,7 @@
 
 BINARY := bin/breakur
 
-.PHONY: help run build test vet fmt tidy up down restart logs ps clean db
+.PHONY: help run build test vet fmt tidy up down restart logs ps clean db redis
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -29,6 +29,9 @@ tidy: ## sync go.mod / go.sum
 
 db: ## start only the postgres database (host-accessible on localhost:5432)
 	docker compose up -d --wait postgres
+
+redis: ## start only redis for host-side testing (localhost:6379)
+	docker compose up -d --wait redis
 
 up: ## start app + postgres + redis
 	docker compose up --build -d
