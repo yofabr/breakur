@@ -38,6 +38,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    # Behave like a cache: evict least-recently-used keys when memory is full
+    # instead of erroring on writes.
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
