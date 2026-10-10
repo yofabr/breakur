@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,8 +16,10 @@ import (
 	"time"
 
 	"breakur/internal/auth"
+	"breakur/internal/cache"
 	"breakur/internal/db"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -402,6 +405,170 @@ func TestDashboardIsNotCached(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Redis cache integration tests (require Postgres + miniredis)
+// ---------------------------------------------------------------------------
+
+// TestRedirectServedFromCacheWithoutPostgres proves a cached redirect performs
+// no Postgres lookup: after the row is deleted directly from the database, the
+// cached code still redirects until the cache entry is evicted.
+func TestRedirectServedFromCacheWithoutPostgres(t *testing.T) {
+	conn := requireDB(t)
+	rc, mr := testRedisCache(t)
+	r, sessions := newTestRouterWithCache(t, conn, rc)
+
+	user := createTestUser(t, conn)
+	cookie := authCookie(sessions, user)
+	destination := "https://cached.example/" + uniqueSuffix()
+	code := "cached" + uniqueSuffix()
+
+	// Creating the link warms the cache.
+	if w := doPost(r, cookie, "/links", url.Values{"url": {destination}, "code": {code}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("create: status = %d, want 303", w.Code)
+	}
+	if w := doGet(r, nil, "/"+code); w.Code != http.StatusFound || w.Header().Get("Location") != destination {
+		t.Fatalf("first redirect: status = %d location = %q, want 302 %q", w.Code, w.Header().Get("Location"), destination)
+	}
+	if key := mr.Exists("breakur:link:v1:" + code); !key {
+		t.Fatal("link key missing from cache after warm-up GET")
+	}
+
+	// Delete the row from Postgres directly, bypassing the app. The cached
+	// entry must keep serving the redirect with zero Postgres queries.
+	if _, err := conn.ExecContext(context.Background(), `DELETE FROM links WHERE short_code = $1`, code); err != nil {
+		t.Fatalf("delete row directly: %v", err)
+	}
+	w := doGet(r, nil, "/"+code)
+	if w.Code != http.StatusFound || w.Header().Get("Location") != destination {
+		t.Fatalf("cached redirect after row deletion: status = %d location = %q, want 302 %q", w.Code, w.Header().Get("Location"), destination)
+	}
+
+	// Evict from the cache; the next request consults Postgres and 404s.
+	if err := rc.Delete(context.Background(), code); err != nil {
+		t.Fatalf("cache delete: %v", err)
+	}
+	if w := doGet(r, nil, "/"+code); w.Code != http.StatusNotFound {
+		t.Fatalf("after cache eviction: status = %d, want 404", w.Code)
+	}
+}
+
+func TestDeleteInvalidatesCache(t *testing.T) {
+	conn := requireDB(t)
+	rc, _ := testRedisCache(t)
+	r, sessions := newTestRouterWithCache(t, conn, rc)
+
+	user := createTestUser(t, conn)
+	cookie := authCookie(sessions, user)
+	destination := "https://invalidated.example"
+	code := "delcached" + uniqueSuffix()
+
+	if w := doPost(r, cookie, "/links", url.Values{"url": {destination}, "code": {code}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("create: status = %d, want 303", w.Code)
+	}
+	if w := doGet(r, nil, "/"+code); w.Code != http.StatusFound {
+		t.Fatalf("warm-up redirect: status = %d, want 302", w.Code)
+	}
+	if _, result, err := rc.Get(context.Background(), code); err != nil || result != cache.LookupHit {
+		t.Fatalf("warm-up cache state = (%v, %v), want LookupHit", result, err)
+	}
+
+	id := linkID(t, conn, code)
+	if w := doPost(r, cookie, "/links/"+strconv.FormatInt(id, 10)+"/delete", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("delete: status = %d, want 303", w.Code)
+	}
+
+	// The code is gone both from Postgres and from Redis.
+	if _, result, err := rc.Get(context.Background(), code); err != nil || result != cache.LookupMiss {
+		t.Fatalf("post-delete cache state = (%v, %v), want LookupMiss", result, err)
+	}
+	if w := doGet(r, nil, "/"+code); w.Code != http.StatusNotFound {
+		t.Fatalf("post-delete redirect: status = %d, want 404", w.Code)
+	}
+}
+
+// TestCacheErrorsDegradeToPostgres proves Redis failures can never produce a
+// 5xx: every error behaves like a cache miss and traffic falls through to
+// PostgreSQL.
+func TestCacheErrorsDegradeToPostgres(t *testing.T) {
+	conn := requireDB(t)
+	r, _ := newTestRouterWithCache(t, conn, errorCache{})
+
+	user := createTestUser(t, conn)
+	code := "degrade" + uniqueSuffix()
+	destination := "https://degrade.example"
+	if _, err := conn.ExecContext(context.Background(),
+		`INSERT INTO links (user_id, url, short_code) VALUES ($1, $2, $3)`, user, destination, code); err != nil {
+		t.Fatalf("seed link: %v", err)
+	}
+
+	w := doGet(r, nil, "/"+code)
+	if w.Code != http.StatusFound || w.Header().Get("Location") != destination {
+		t.Fatalf("existing link with failing cache: status = %d location = %q, want 302 %q", w.Code, w.Header().Get("Location"), destination)
+	}
+
+	unknown := "nope" + uniqueSuffix()
+	if w := doGet(r, nil, "/"+unknown); w.Code != http.StatusNotFound {
+		t.Fatalf("unknown link with failing cache: status = %d, want 404 (no 5xx)", w.Code)
+	}
+}
+
+// TestNegativeCacheClearedOnCreate proves an unknown code is negative-cached
+// and that creating that code clears the negative entry and serves fresh.
+func TestNegativeCacheClearedOnCreate(t *testing.T) {
+	conn := requireDB(t)
+	rc, _ := testRedisCache(t)
+	r, sessions := newTestRouterWithCache(t, conn, rc)
+
+	user := createTestUser(t, conn)
+	cookie := authCookie(sessions, user)
+	code := "negcache" + uniqueSuffix()
+	destination := "https://negative.example"
+
+	if w := doGet(r, nil, "/"+code); w.Code != http.StatusNotFound {
+		t.Fatalf("unknown code: status = %d, want 404", w.Code)
+	}
+	if _, result, err := rc.Get(context.Background(), code); err != nil || result != cache.LookupNegative {
+		t.Fatalf("after 404, cache = (%v, %v), want LookupNegative", result, err)
+	}
+
+	if w := doPost(r, cookie, "/links", url.Values{"url": {destination}, "code": {code}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("create: status = %d, want 303", w.Code)
+	}
+	if _, result, err := rc.Get(context.Background(), code); err != nil || result != cache.LookupHit {
+		t.Fatalf("after create, cache = (%v, %v), want LookupHit", result, err)
+	}
+	if w := doGet(r, nil, "/"+code); w.Code != http.StatusFound || w.Header().Get("Location") != destination {
+		t.Fatalf("redirect after create: status = %d location = %q", w.Code, w.Header().Get("Location"))
+	}
+}
+
+// TestNoCacheRunsPostgresOnly proves the full create -> redirect -> delete flow
+// works with cache.Nop{} (Redis absent), exactly as before caching existed.
+func TestNoCacheRunsPostgresOnly(t *testing.T) {
+	conn := requireDB(t)
+	r, sessions := newTestRouterWithCache(t, conn, cache.Nop{})
+
+	user := createTestUser(t, conn)
+	cookie := authCookie(sessions, user)
+	destination := "https://nocache.example/" + uniqueSuffix()
+	code := "nocache" + uniqueSuffix()
+
+	if w := doPost(r, cookie, "/links", url.Values{"url": {destination}, "code": {code}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("create: status = %d, want 303", w.Code)
+	}
+	if w := doGet(r, nil, "/"+code); w.Code != http.StatusFound || w.Header().Get("Location") != destination {
+		t.Fatalf("redirect: status = %d location = %q", w.Code, w.Header().Get("Location"))
+	}
+
+	id := linkID(t, conn, code)
+	if w := doPost(r, cookie, "/links/"+strconv.FormatInt(id, 10)+"/delete", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("delete: status = %d, want 303", w.Code)
+	}
+	if w := doGet(r, nil, "/"+code); w.Code != http.StatusNotFound {
+		t.Fatalf("redirect after delete: status = %d, want 404", w.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test infrastructure
 // ---------------------------------------------------------------------------
 
@@ -422,6 +589,46 @@ func newTestRouter(t *testing.T, conn *sql.DB) (*gin.Engine, *auth.SessionManage
 	}
 	return New(conn, nil), sessions
 }
+
+// newTestRouterWithCache builds a router backed by the given LinkCache.
+func newTestRouterWithCache(t *testing.T, conn *sql.DB, linkCache cache.LinkCache) (*gin.Engine, *auth.SessionManager) {
+	t.Helper()
+	withSecret(t)
+	sessions, err := auth.NewSessionManager(testSecret)
+	if err != nil {
+		t.Fatalf("new session manager: %v", err)
+	}
+	return New(conn, linkCache), sessions
+}
+
+// testRedisCache starts an in-memory Redis and returns a Redis-backed cache.
+func testRedisCache(t *testing.T) (*cache.Redis, *miniredis.Miniredis) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	rc, err := cache.NewRedis(context.Background(), cache.Config{
+		Addr:        mr.Addr(),
+		TTL:         time.Hour,
+		NegativeTTL: time.Minute,
+		Timeout:     time.Second,
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	t.Cleanup(func() { _ = rc.Close() })
+	return rc, mr
+}
+
+// errorCache is a LinkCache whose every operation fails, simulating Redis being
+// down at request time.
+type errorCache struct{}
+
+func (errorCache) Get(context.Context, string) (string, cache.Lookup, error) {
+	return "", cache.LookupMiss, errors.New("cache down")
+}
+func (errorCache) Set(context.Context, string, string) error { return errors.New("cache down") }
+func (errorCache) SetMissing(context.Context, string) error  { return errors.New("cache down") }
+func (errorCache) Delete(context.Context, string) error      { return errors.New("cache down") }
+func (errorCache) Close() error                              { return nil }
 
 // lazyDB returns a handle that never connects; it is enough for tests that only
 // exercise routing and middleware before any query runs.
