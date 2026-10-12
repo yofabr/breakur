@@ -35,6 +35,11 @@
             <button class="w-full border-3 border-black bg-[#ff5c35] px-4 py-3 text-base font-black uppercase shadow-[5px_5px_0_#111] transition hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[3px_3px_0_#111] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-black" type="submit">Sign in →</button>
           </form>
 
+          <div class="mt-8 hidden" id="oauth">
+            <p class="mb-4 border-t-3 border-black pt-5 text-xs font-bold uppercase tracking-[0.16em]">Or continue with</p>
+            <div class="grid gap-3" id="oauth-buttons"></div>
+          </div>
+
           <p class="mt-8 border-t-3 border-black pt-5 text-sm font-bold">NEW HERE? <a class="underline decoration-3 underline-offset-3 hover:no-underline" href="/signup">MAKE AN ACCOUNT →</a></p>
         </div>
       </section>
@@ -43,5 +48,21 @@
   <script>
     const error = new URLSearchParams(window.location.search).get("error");
     if (error) { const target = document.querySelector("#form-error"); target.textContent = error; target.classList.remove("hidden"); }
+
+    fetch("/auth/providers")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((providers) => {
+        if (!providers || !providers.length) return;
+        const box = document.querySelector("#oauth-buttons");
+        for (const provider of providers) {
+          const link = document.createElement("a");
+          link.href = "/auth/" + encodeURIComponent(provider.name);
+          link.textContent = "Continue with " + provider.label;
+          link.className = "block w-full border-3 border-black bg-white px-4 py-3 text-center text-base font-black uppercase shadow-[5px_5px_0_#111] transition hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[3px_3px_0_#111]";
+          box.appendChild(link);
+        }
+        document.querySelector("#oauth").classList.remove("hidden");
+      })
+      .catch(() => {});
   </script>
 </html>
