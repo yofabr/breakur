@@ -39,6 +39,12 @@ func NewSessionManager(secret string) (*SessionManager, error) {
 	return &SessionManager{secret: key}, nil
 }
 
+// Key returns the signing key. Cookie-backed helpers (such as the OAuth state
+// cookie) share it so their sessions survive application restarts too.
+func (m *SessionManager) Key() []byte {
+	return m.secret
+}
+
 // Create returns a signed session value for userID.
 func (m *SessionManager) Create(userID int64, now time.Time) string {
 	payload := strconv.FormatInt(userID, 10) + "." + strconv.FormatInt(now.Add(SessionDuration).Unix(), 10)
