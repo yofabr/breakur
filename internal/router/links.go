@@ -42,6 +42,7 @@ var reservedCodes = map[string]bool{
 	"links":     true,
 	"logout":    true,
 	"public":    true,
+	"auth":      true,
 }
 
 // codeAlphabet deliberately excludes characters that are unsafe in URLs.

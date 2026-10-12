@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"breakur/internal/auth"
 	"breakur/internal/cache"
@@ -32,6 +33,23 @@ type server struct {
 	cache     cache.LinkCache
 	sessions  *auth.SessionManager
 	dashboard *template.Template
+	// providers are the enabled third-party sign-in methods shown in the UI;
+	// oauth maps a provider name to its label for messages and route guards.
+	providers []auth.Provider
+	oauth     map[string]string
+}
+
+// oauthBaseURL is the public root used to build provider callback URLs. It must
+// match the redirect URI registered with each provider, so it is explicit in
+// production rather than inferred from the request.
+func oauthBaseURL() string {
+	if base := strings.TrimSpace(os.Getenv("OAUTH_BASE_URL")); base != "" {
+		return base
+	}
+	if port := os.Getenv("PORT"); port != "" {
+		return "http://localhost:" + port
+	}
+	return "http://localhost:8080"
 }
 
 // New builds the Gin engine with all routes registered. A nil linkCache
@@ -58,7 +76,23 @@ func New(conn *sql.DB, linkCache cache.LinkCache) *gin.Engine {
 
 	s := &server{conn: conn, cache: linkCache, sessions: sessions, dashboard: dashboard}
 
+	baseURL := oauthBaseURL()
+	s.providers = auth.ConfigureOAuth(baseURL, sessions.Key(), secureCookies())
+	if len(s.providers) > 0 {
+		s.oauth = make(map[string]string, len(s.providers))
+		for _, p := range s.providers {
+			s.oauth[p.Name] = p.Label
+		}
+		log.Printf("third-party sign-in enabled: %s (callbacks under %s)", providerNames(s.providers), baseURL)
+	}
+
 	r := gin.Default()
+
+	// Third-party (OAuth) sign-in. The provider list drives the buttons on the
+	// login and signup pages.
+	r.GET("/auth/providers", s.listOAuthProviders)
+	r.GET("/auth/:provider", s.beginOAuth)
+	r.GET("/auth/:provider/callback", s.completeOAuth)
 
 	// Public pages; signed-in users are bounced to their dashboard instead.
 	r.GET("/", noStore, s.redirectIfAuthenticated, func(c *gin.Context) { c.File(indexFile) })
