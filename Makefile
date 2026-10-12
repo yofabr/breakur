@@ -8,8 +8,10 @@ help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
-run: ## run the API locally (no docker)
-	go run ./cmd
+run: ## run the API locally (sources .env; no docker)
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+		[ -f .env ] && echo "loaded .env" || echo "no .env found, using defaults"; \
+		go run ./cmd
 
 build: ## build release binary into bin/
 	mkdir -p bin
