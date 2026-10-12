@@ -49,6 +49,12 @@
     const error = new URLSearchParams(window.location.search).get("error");
     if (error) { const target = document.querySelector("#form-error"); target.textContent = error; target.classList.remove("hidden"); }
 
+    // Brand marks come from Simple Icons; small, correct, and served over HTTPS.
+    const OAUTH_ICONS = {
+      google: "https://cdn.simpleicons.org/google",
+      github: "https://cdn.simpleicons.org/github",
+    };
+
     fetch("/auth/providers")
       .then((response) => (response.ok ? response.json() : []))
       .then((providers) => {
@@ -57,8 +63,19 @@
         for (const provider of providers) {
           const link = document.createElement("a");
           link.href = "/auth/" + encodeURIComponent(provider.name);
-          link.textContent = "Continue with " + provider.label;
-          link.className = "block w-full border-3 border-black bg-white px-4 py-3 text-center text-base font-black uppercase shadow-[5px_5px_0_#111] transition hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[3px_3px_0_#111]";
+          link.className = "flex w-full items-center justify-center gap-2 border-3 border-black bg-white px-4 py-3 text-base font-black uppercase shadow-[5px_5px_0_#111] transition hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[3px_3px_0_#111]";
+
+          const iconSrc = OAUTH_ICONS[provider.name];
+          if (iconSrc) {
+            const icon = document.createElement("img");
+            icon.src = iconSrc;
+            icon.alt = "";
+            icon.setAttribute("aria-hidden", "true");
+            icon.style.cssText = "width:1.25rem;height:1.25rem;flex-shrink:0";
+            link.appendChild(icon);
+          }
+
+          link.appendChild(document.createTextNode("Continue with " + provider.label));
           box.appendChild(link);
         }
         document.querySelector("#oauth").classList.remove("hidden");
