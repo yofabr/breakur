@@ -10,6 +10,7 @@ services:
       REDIS_ADDR: redis:6379
       # Third-party sign-in; each provider enables when both vars are set.
       OAUTH_BASE_URL: ${OAUTH_BASE_URL:-http://localhost:8080}
+      AUTH_SESSION_TTL: ${AUTH_SESSION_TTL:-168h}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

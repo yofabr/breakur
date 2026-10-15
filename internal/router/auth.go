@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"breakur/internal/auth"
-
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
@@ -113,7 +111,7 @@ func (s *server) logout(c *gin.Context) {
 }
 
 func (s *server) setSession(c *gin.Context, userID int64) {
-	c.SetCookie(sessionCookie, s.sessions.Create(userID, time.Now()), int(auth.SessionDuration.Seconds()), "/", "", secureCookies(), true)
+	c.SetCookie(sessionCookie, s.sessions.Create(userID, time.Now()), int(s.sessions.Duration().Seconds()), "/", "", secureCookies(), true)
 }
 
 func redirectWithError(c *gin.Context, path, message string) {

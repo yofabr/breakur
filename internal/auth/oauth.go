@@ -4,6 +4,7 @@ package auth
 import (
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gorilla/sessions"
 	"github.com/markbates/goth"
@@ -25,12 +26,14 @@ type Provider struct {
 //
 // baseURL is the public root used to build provider callback URLs, for example
 // https://breakur.example, producing https://breakur.example/auth/github/callback.
-func ConfigureOAuth(baseURL string, key []byte, secureCookies bool) []Provider {
+//
+// ttl bounds how long the in-flight OAuth state cookie stays valid.
+func ConfigureOAuth(baseURL string, key []byte, secureCookies bool, ttl time.Duration) []Provider {
 	store := sessions.NewCookieStore(key)
 	store.Options.HttpOnly = true
 	store.Options.Secure = secureCookies
 	store.Options.Path = "/"
-	store.Options.MaxAge = int(SessionDuration.Seconds())
+	store.Options.MaxAge = int(ttl.Seconds())
 	gothic.Store = store
 
 	var providers []Provider

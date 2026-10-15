@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,20 +15,30 @@ import (
 	"time"
 )
 
-const SessionDuration = 7 * 24 * time.Hour
+const (
+	// SessionDuration is the session lifetime used when AUTH_SESSION_TTL is unset.
+	SessionDuration = 7 * 24 * time.Hour
 
-// keyFileEnv overrides where the generated session key is stored.
-const keyFileEnv = "AUTH_SESSION_KEY_FILE"
+	// keyFileEnv overrides where the generated session key is stored.
+	keyFileEnv = "AUTH_SESSION_KEY_FILE"
+
+	// sessionTTLEnv overrides the session lifetime. It accepts Go duration
+	// syntax, for example "168h", "30m" or "90s".
+	sessionTTLEnv = "AUTH_SESSION_TTL"
+)
 
 // SessionManager creates tamper-evident cookies. Set AUTH_SESSION_SECRET in
 // production so sessions survive application restarts.
 type SessionManager struct {
 	secret []byte
+	ttl    time.Duration
 }
 
 func NewSessionManager(secret string) (*SessionManager, error) {
+	ttl := sessionTTL()
+
 	if secret != "" {
-		return &SessionManager{secret: []byte(secret)}, nil
+		return &SessionManager{secret: []byte(secret), ttl: ttl}, nil
 	}
 
 	// No explicit secret: load a persisted key so development sessions survive
@@ -36,7 +47,7 @@ func NewSessionManager(secret string) (*SessionManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &SessionManager{secret: key}, nil
+	return &SessionManager{secret: key, ttl: ttl}, nil
 }
 
 // Key returns the signing key. Cookie-backed helpers (such as the OAuth state
@@ -45,9 +56,15 @@ func (m *SessionManager) Key() []byte {
 	return m.secret
 }
 
+// Duration returns how long a session stays valid. Login cookies and the OAuth
+// state cookie use it so both expire with the configured AUTH_SESSION_TTL.
+func (m *SessionManager) Duration() time.Duration {
+	return m.ttl
+}
+
 // Create returns a signed session value for userID.
 func (m *SessionManager) Create(userID int64, now time.Time) string {
-	payload := strconv.FormatInt(userID, 10) + "." + strconv.FormatInt(now.Add(SessionDuration).Unix(), 10)
+	payload := strconv.FormatInt(userID, 10) + "." + strconv.FormatInt(now.Add(m.ttl).Unix(), 10)
 	mac := hmac.New(sha256.New, m.secret)
 	mac.Write([]byte(payload))
 	return payload + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
@@ -80,6 +97,21 @@ func (m *SessionManager) UserID(value string, now time.Time) (int64, error) {
 		return 0, errors.New("expired session")
 	}
 	return userID, nil
+}
+
+// sessionTTL reads the configured session lifetime from AUTH_SESSION_TTL,
+// falling back to SessionDuration when it is unset or not a positive duration.
+func sessionTTL() time.Duration {
+	v := strings.TrimSpace(os.Getenv(sessionTTLEnv))
+	if v == "" {
+		return SessionDuration
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		log.Printf("%s=%q is not a positive duration; using %s", sessionTTLEnv, v, SessionDuration)
+		return SessionDuration
+	}
+	return d
 }
 
 // defaultKeyPath chooses where the auto-generated session key lives. The

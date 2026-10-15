@@ -77,7 +77,7 @@ func New(conn *sql.DB, linkCache cache.LinkCache) *gin.Engine {
 	s := &server{conn: conn, cache: linkCache, sessions: sessions, dashboard: dashboard}
 
 	baseURL := oauthBaseURL()
-	s.providers = auth.ConfigureOAuth(baseURL, sessions.Key(), secureCookies())
+	s.providers = auth.ConfigureOAuth(baseURL, sessions.Key(), secureCookies(), sessions.Duration())
 	if len(s.providers) > 0 {
 		s.oauth = make(map[string]string, len(s.providers))
 		for _, p := range s.providers {

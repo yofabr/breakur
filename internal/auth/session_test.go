@@ -65,3 +65,39 @@ func TestExpiredSessionRejected(t *testing.T) {
 		t.Fatal("expired session was accepted")
 	}
 }
+
+func TestSessionTTLFromEnv(t *testing.T) {
+	t.Setenv("AUTH_SESSION_TTL", "2h")
+
+	m, err := NewSessionManager("secret")
+	if err != nil {
+		t.Fatalf("manager: %v", err)
+	}
+	if got := m.Duration(); got != 2*time.Hour {
+		t.Fatalf("Duration() = %s, want 2h", got)
+	}
+
+	now := time.Now()
+	cookie := m.Create(1, now)
+
+	// Inside the configured window the session is accepted.
+	if id, err := m.UserID(cookie, now.Add(90*time.Minute)); err != nil || id != 1 {
+		t.Fatalf("session rejected inside TTL: id=%d err=%v", id, err)
+	}
+	// Once the configured TTL lapses it is rejected.
+	if _, err := m.UserID(cookie, now.Add(3*time.Hour)); err == nil {
+		t.Fatal("session accepted past the configured TTL")
+	}
+}
+
+func TestSessionTTLFallsBackWhenInvalid(t *testing.T) {
+	t.Setenv("AUTH_SESSION_TTL", "not-a-duration")
+
+	m, err := NewSessionManager("secret")
+	if err != nil {
+		t.Fatalf("manager: %v", err)
+	}
+	if got := m.Duration(); got != SessionDuration {
+		t.Fatalf("Duration() = %s, want default %s", got, SessionDuration)
+	}
+}
